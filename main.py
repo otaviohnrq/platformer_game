@@ -2,25 +2,18 @@ import random
 from pygame import Rect
 import pgzrun
 
-# ====================================================================
-# CONFIGURAÇÕES DO JOGO
-# ====================================================================
 TITLE = "Platformer Adventure"
 WIDTH, HEIGHT = 800, 600
 
-# Física
 GRAVITY = 0.8
 JUMP_FORCE = -15
 
-# Estados do jogo
 MENU, PLAYING, GAME_OVER = 0, 1, 2
 
-# Áudio
 music_volume = 0.5
 music_enabled = True
 sounds_enabled = True
 
-# Sprites (idle com 4 frames)
 HERO_IDLE = ['hero/hero_idle1', 'hero/hero_idle2', 'hero/hero_idle3', 'hero/hero_idle4']
 HERO_WALK = ['hero/walk1', 'hero/walk2', 'hero/walk3', 'hero/walk4']
 ENEMY_TYPES = [
@@ -28,13 +21,9 @@ ENEMY_TYPES = [
     ['enemies/enemy2_1', 'enemies/enemy2_2']
 ]
 
-# Robustez do pulo
 COYOTE_FRAMES = 6
 JUMP_BUFFER_FRAMES = 6
 
-# ====================================================================
-# CLASSES
-# ====================================================================
 class Hero:
     def __init__(self):
         self.reset()
@@ -58,69 +47,45 @@ class Hero:
         self.facing_right = True
 
     def update(self, platforms):
-        # Aplica gravidade
         self.vel_y += GRAVITY
         
-        # PRIMEIRO: Movimento horizontal com detecção de colisão
         new_x = self.x + self.vel_x
-        temp_hero_rect = Rect(new_x, self.y, self.width, self.height)
+        hero_rect_horizontal = Rect(new_x, self.y, self.width, self.height)
         
-        # Verifica colisões horizontais - LÓGICA COMPLETAMENTE REFEITA
-        horizontal_collision = False
         for platform in platforms:
-            if temp_hero_rect.colliderect(platform):
-                # Calcula quanto do herói está dentro da plataforma
-                penetration_depth = min(
-                    temp_hero_rect.right - platform.left,
-                    platform.right - temp_hero_rect.left
-                )
-                
-                # Só considera colisão lateral se a penetração for significativa
-                # e o herói não estiver claramente tentando pular através
-                if penetration_depth > 15:  # Aumentei a tolerância
-                    horizontal_collision = True
-                    if self.vel_x > 0:
-                        new_x = platform.left - self.width
-                    elif self.vel_x < 0:
-                        new_x = platform.right
-                    break
+            if hero_rect_horizontal.colliderect(platform):
+                if self.vel_x > 0:
+                    new_x = platform.left - self.width
+                elif self.vel_x < 0:
+                    new_x = platform.right
+                break
         
         self.x = new_x
 
-        # SEGUNDO: Movimento vertical com detecção de colisão
         new_y = self.y + self.vel_y
-        temp_hero_rect = Rect(self.x, new_y, self.width, self.height)
+        hero_rect_vertical = Rect(self.x, new_y, self.width, self.height)
         
         self.on_ground = False
         
         for platform in platforms:
-            if temp_hero_rect.colliderect(platform):
-                # Calcula as penetrações em todas as direções
-                pen_left = temp_hero_rect.right - platform.left
-                pen_right = platform.right - temp_hero_rect.left
-                pen_top = temp_hero_rect.bottom - platform.top
-                pen_bottom = platform.bottom - temp_hero_rect.top
-                
-                # Encontra a menor penetração (direção da colisão)
-                min_pen = min(pen_left, pen_right, pen_top, pen_bottom)
-                
-                # COLISÃO PELO TOPO (descendo na plataforma)
-                if min_pen == pen_top and self.vel_y >= 0:
+            if hero_rect_vertical.colliderect(platform):
+                if self.vel_y > 0 and hero_rect_vertical.bottom > platform.top and hero_rect_vertical.top < platform.top:
                     new_y = platform.top - self.height
                     self.vel_y = 0
                     self.on_ground = True
                     self.is_jumping = False
                 
-                # COLISÃO PELA BASE (subindo) - SEMPRE PERMITIR PASSAR
-                elif min_pen == pen_bottom and self.vel_y < 0:
-                    # NÃO FAZ NADA - permite que o herói passe através
-                    continue
-                
+                elif self.vel_y < 0 and hero_rect_vertical.top < platform.bottom and hero_rect_vertical.bottom > platform.bottom:
+                    overlap_top = platform.bottom - hero_rect_vertical.top
+                    overlap_bottom = hero_rect_vertical.bottom - platform.top
+                    
+                    if overlap_top > overlap_bottom:
+                        new_y = platform.bottom
+                        self.vel_y = 0
                 break
         
         self.y = new_y
 
-        # Limites da tela
         self.x = max(0, min(self.x, WIDTH - self.width))
         if self.y > HEIGHT - self.height:
             self.y = HEIGHT - self.height
@@ -128,7 +93,6 @@ class Hero:
             self.on_ground = True
             self.is_jumping = False
 
-        # Atualiza timers
         if self.on_ground:
             self.coyote_timer = COYOTE_FRAMES
         elif self.coyote_timer > 0:
@@ -137,13 +101,11 @@ class Hero:
         if self.jump_buffer > 0:
             self.jump_buffer -= 1
 
-        # Animação
         if self.vel_x == 0:
             self.idle_counter += self.animation_speed
         else:
             self.walk_counter += self.animation_speed
 
-        # Direção
         if self.vel_x > 0:
             self.facing_right = True
         elif self.vel_x < 0:
@@ -250,9 +212,6 @@ class Button:
     def is_clicked(self, pos, click):
         return self.rect.collidepoint(pos) and click
 
-# ====================================================================
-# ESTADO DO JOGO E LEVEL DESIGN
-# ====================================================================
 game_state = MENU
 hero = Hero()
 enemies = []
@@ -272,8 +231,8 @@ def spawn_enemies():
     global enemies
     enemies = []
     platform_positions = [
-        (platforms[2], 40),  # Inimigo na plataforma média
-        (platforms[3], 30)   # Inimigo na plataforma alta esquerda
+        (platforms[2], 40),  
+        (platforms[3], 30)
     ]
     for platform, patrol in platform_positions:
         enemy_x = platform.centerx - 25
