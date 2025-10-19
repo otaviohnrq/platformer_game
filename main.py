@@ -2,18 +2,25 @@ import random
 from pygame import Rect
 import pgzrun
 
+# ====================================================================
+# CONFIGURAÇÕES DO JOGO
+# ====================================================================
 TITLE = "Platformer Adventure"
 WIDTH, HEIGHT = 800, 600
 
+# Física
 GRAVITY = 0.8
 JUMP_FORCE = -15
 
+# Estados do jogo
 MENU, PLAYING, GAME_OVER = 0, 1, 2
 
+# Áudio
 music_volume = 0.5
 music_enabled = True
 sounds_enabled = True
 
+# Sprites (idle com 4 frames)
 HERO_IDLE = ['hero/hero_idle1', 'hero/hero_idle2', 'hero/hero_idle3', 'hero/hero_idle4']
 HERO_WALK = ['hero/walk1', 'hero/walk2', 'hero/walk3', 'hero/walk4']
 ENEMY_TYPES = [
@@ -21,17 +28,20 @@ ENEMY_TYPES = [
     ['enemies/enemy2_1', 'enemies/enemy2_2']
 ]
 
-COYOTE_FRAMES = 6   # Quantos frames após sair do chão 
-JUMP_BUFFER_FRAMES = 6  # Quantos frames guardar o pedido de pulo se apertado antes de tocar o chão
+# Robustez do pulo
+COYOTE_FRAMES = 6
+JUMP_BUFFER_FRAMES = 6
 
-# Classes
+# ====================================================================
+# CLASSES
+# ====================================================================
 class Hero:
     def __init__(self):
         self.reset()
         self.speed = 5
-        self.animation_speed = 0.1
-        self.idle_counter = 0
-        self.walk_counter = 0
+        self.animation_speed = 0.12
+        self.idle_counter = 0.0
+        self.walk_counter = 0.0
         self.facing_right = True
 
     def reset(self):
@@ -41,39 +51,76 @@ class Hero:
         self.is_jumping = False
         self.on_ground = False
         self.width, self.height = 50, 70
-
         self.coyote_timer = 0
         self.jump_buffer = 0
+        self.idle_counter = 0.0
+        self.walk_counter = 0.0
+        self.facing_right = True
 
     def update(self, platforms):
+        # Aplica gravidade
         self.vel_y += GRAVITY
-        self.x += self.vel_x
-
-        hero_rect = self.get_rect()
+        
+        # PRIMEIRO: Movimento horizontal com detecção de colisão
+        new_x = self.x + self.vel_x
+        temp_hero_rect = Rect(new_x, self.y, self.width, self.height)
+        
+        # Verifica colisões horizontais - LÓGICA COMPLETAMENTE REFEITA
+        horizontal_collision = False
         for platform in platforms:
-            if hero_rect.colliderect(platform):
-                if self.vel_x > 0:
-                    self.x = platform.left - self.width
-                elif self.vel_x < 0:
-                    self.x = platform.right
-                break
+            if temp_hero_rect.colliderect(platform):
+                # Calcula quanto do herói está dentro da plataforma
+                penetration_depth = min(
+                    temp_hero_rect.right - platform.left,
+                    platform.right - temp_hero_rect.left
+                )
+                
+                # Só considera colisão lateral se a penetração for significativa
+                # e o herói não estiver claramente tentando pular através
+                if penetration_depth > 15:  # Aumentei a tolerância
+                    horizontal_collision = True
+                    if self.vel_x > 0:
+                        new_x = platform.left - self.width
+                    elif self.vel_x < 0:
+                        new_x = platform.right
+                    break
+        
+        self.x = new_x
 
-        self.y += self.vel_y
+        # SEGUNDO: Movimento vertical com detecção de colisão
+        new_y = self.y + self.vel_y
+        temp_hero_rect = Rect(self.x, new_y, self.width, self.height)
+        
         self.on_ground = False
-
-        hero_rect = self.get_rect()
+        
         for platform in platforms:
-            if hero_rect.colliderect(platform):
-                if self.vel_y > 0:  
-                    self.y = platform.top - self.height
+            if temp_hero_rect.colliderect(platform):
+                # Calcula as penetrações em todas as direções
+                pen_left = temp_hero_rect.right - platform.left
+                pen_right = platform.right - temp_hero_rect.left
+                pen_top = temp_hero_rect.bottom - platform.top
+                pen_bottom = platform.bottom - temp_hero_rect.top
+                
+                # Encontra a menor penetração (direção da colisão)
+                min_pen = min(pen_left, pen_right, pen_top, pen_bottom)
+                
+                # COLISÃO PELO TOPO (descendo na plataforma)
+                if min_pen == pen_top and self.vel_y >= 0:
+                    new_y = platform.top - self.height
                     self.vel_y = 0
                     self.on_ground = True
                     self.is_jumping = False
-                elif self.vel_y < 0:  
-                    self.y = platform.bottom
-                    self.vel_y = 0
+                
+                # COLISÃO PELA BASE (subindo) - SEMPRE PERMITIR PASSAR
+                elif min_pen == pen_bottom and self.vel_y < 0:
+                    # NÃO FAZ NADA - permite que o herói passe através
+                    continue
+                
                 break
+        
+        self.y = new_y
 
+        # Limites da tela
         self.x = max(0, min(self.x, WIDTH - self.width))
         if self.y > HEIGHT - self.height:
             self.y = HEIGHT - self.height
@@ -81,20 +128,22 @@ class Hero:
             self.on_ground = True
             self.is_jumping = False
 
+        # Atualiza timers
         if self.on_ground:
             self.coyote_timer = COYOTE_FRAMES
-        else:
-            if self.coyote_timer > 0:
-                self.coyote_timer -= 1
+        elif self.coyote_timer > 0:
+            self.coyote_timer -= 1
 
         if self.jump_buffer > 0:
             self.jump_buffer -= 1
 
+        # Animação
         if self.vel_x == 0:
             self.idle_counter += self.animation_speed
         else:
             self.walk_counter += self.animation_speed
 
+        # Direção
         if self.vel_x > 0:
             self.facing_right = True
         elif self.vel_x < 0:
@@ -124,10 +173,10 @@ class Hero:
 
         try:
             actor = Actor(frames[frame])
-            actor.pos = (self.x + self.width//2, self.y + self.height)
+            actor.pos = (self.x + self.width // 2, self.y + self.height)
             actor.flip_x = not self.facing_right
             actor.draw()
-        except:
+        except Exception:
             screen.draw.filled_rect(self.get_rect(), (0, 100, 200))
             eye_x = self.x + 35 if self.facing_right else self.x + 15
             screen.draw.filled_circle((eye_x, self.y + 20), 5, (255, 255, 255))
@@ -136,7 +185,7 @@ class Hero:
         if sounds_enabled:
             try:
                 getattr(sounds, sound_name).play()
-            except:
+            except Exception:
                 pass
 
 class Enemy:
@@ -147,8 +196,8 @@ class Enemy:
         self.speed = 2
         self.direction = 1
         self.width, self.height = 50, 50
-        self.animation_counter = 0
-        self.animation_speed = 0.1
+        self.animation_counter = 0.0
+        self.animation_speed = 0.12
         self.type = random.randint(0, len(ENEMY_TYPES) - 1)
 
     def update(self):
@@ -160,20 +209,25 @@ class Enemy:
         self.animation_counter += self.animation_speed
 
     def get_rect(self):
-        return Rect(self.x, self.y, self.width, self.height)
+        shrink_factor = 0.7
+        new_width = self.width * shrink_factor
+        new_height = self.height * shrink_factor
+        offset_x = (self.width - new_width) / 2
+        offset_y = (self.height - new_height) / 2
+        return Rect(self.x + offset_x, self.y + offset_y, new_width, new_height)
 
     def draw(self):
         frames = ENEMY_TYPES[self.type]
         frame = int(self.animation_counter) % len(frames)
         try:
             actor = Actor(frames[frame])
-            actor.pos = (self.x + self.width//2, self.y + self.height)  # alinhar pela base
+            actor.pos = (self.x + self.width // 2, self.y + self.height)
             actor.flip_x = self.direction < 0
             actor.draw()
-        except:
+        except Exception:
             screen.draw.filled_circle(
-                (self.x + self.width//2, self.y + self.height//2),
-                self.width//2, (200, 50, 50)
+                (self.x + self.width // 2, self.y + self.height // 2),
+                self.width // 2, (200, 50, 50)
             )
 
 class Button:
@@ -196,39 +250,40 @@ class Button:
     def is_clicked(self, pos, click):
         return self.rect.collidepoint(pos) and click
 
+# ====================================================================
+# ESTADO DO JOGO E LEVEL DESIGN
+# ====================================================================
 game_state = MENU
 hero = Hero()
 enemies = []
 platforms = []
-
 keys_pressed = set()
 
 def create_level():
     global platforms
     platforms = [
-        Rect(0, 500, 300, 20),
-        Rect(400, 500, 400, 20),
-        Rect(200, 400, 200, 20),
-        Rect(500, 350, 150, 20),
-        Rect(100, 350, 150, 20)
+        Rect(0, 500, 300, 20),           # Primeira plataforma (base esquerda)
+        Rect(450, 500, 350, 20),         # Segunda plataforma (base direita)
+        Rect(350, 400, 200, 20),         # Plataforma média
+        Rect(100, 350, 150, 20)          # Plataforma alta esquerda
     ]
 
 def spawn_enemies():
     global enemies
     enemies = []
     platform_positions = [
-        (platforms[2], 80),  # plataforma média
-        (platforms[3], 100), # alta direita
-        (platforms[4], 60)   # alta esquerda
+        (platforms[2], 40),  # Inimigo na plataforma média
+        (platforms[3], 30)   # Inimigo na plataforma alta esquerda
     ]
-
     for platform, patrol in platform_positions:
-        enemy_x = platform.centerx - 25 # centralizado
-        enemy_y = platform.top - 50 # em cima da plataforma
+        enemy_x = platform.centerx - 25
+        enemy_y = platform.top - 50
         enemies.append(Enemy(enemy_x, enemy_y, patrol))
 
 def reset_game():
-    create_level()     
+    global keys_pressed
+    keys_pressed.clear()
+    create_level()
     hero.reset()
     spawn_enemies()
 
@@ -242,7 +297,7 @@ def init_music():
         try:
             music.play('theme')
             music.set_volume(music_volume)
-        except:
+        except Exception:
             music_enabled = False
             music_button.text = "Music OFF"
 
@@ -257,29 +312,25 @@ def toggle_music():
         else:
             music.stop()
             music_button.text = "Music OFF"
-    except:
+    except Exception:
         music_enabled = False
         music_button.text = "Music OFF"
 
 def draw():
     screen.clear()
     screen.fill((50, 120, 180))
-
     if game_state == MENU:
         screen.draw.text("PLATFORMER ADVENTURE", center=(WIDTH//2, HEIGHT//4),
                          color=(255, 255, 255), fontsize=48)
         start_button.draw()
         music_button.draw()
         exit_button.draw()
-
     elif game_state == PLAYING:
         for platform in platforms:
             screen.draw.filled_rect(platform, (100, 70, 40))
-
         hero.draw()
         for enemy in enemies:
             enemy.draw()
-
     elif game_state == GAME_OVER:
         screen.draw.text("GAME OVER", center=(WIDTH//2, HEIGHT//3),
                          color=(255, 50, 50), fontsize=64)
@@ -288,7 +339,6 @@ def draw():
 
 def update():
     global game_state
-
     if game_state == PLAYING:
         if 'left' in keys_pressed and 'right' in keys_pressed:
             hero.vel_x = 0
@@ -302,9 +352,7 @@ def update():
         hero.update(platforms)
 
         if hero.jump_buffer > 0:
-            performed = hero.try_jump()
-            if not performed:
-                pass
+            _ = hero.try_jump()
 
         for enemy in enemies:
             enemy.update()
@@ -320,7 +368,6 @@ def on_mouse_move(pos):
 
 def on_mouse_down(pos):
     global game_state
-
     if game_state == MENU:
         if start_button.is_clicked(pos, True):
             reset_game()
@@ -330,7 +377,6 @@ def on_mouse_down(pos):
         elif exit_button.is_clicked(pos, True):
             import sys
             sys.exit()
-
     elif game_state == GAME_OVER:
         game_state = MENU
 
@@ -351,4 +397,5 @@ def on_key_up(key):
             keys_pressed.discard('right')
 
 init_music()
+reset_game()
 pgzrun.go()
